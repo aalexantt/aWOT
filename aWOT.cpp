@@ -1,6 +1,5 @@
 /*
-  Web server library for Arduino, Teensy and ESP8266
-  Copyright 2014 Lasse Lukkari
+  aWOT, Express.js inspired  microcontreller web framework for the Web of Things
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -24,39 +23,43 @@
 #include "aWOT.h"
 
 /* Request constructor. */
-Request::Request() :
-  m_clientObject(NULL),
-  m_methodType(INVALID),
-  m_pushbackDepth(0),
-  m_readingContent(false),
-  m_contentLeft(0),
-  m_bytesRead(0),
-  m_headerTail(NULL),
-  m_query(NULL),
-  m_queryComplete(false),
-  m_urlPath(NULL),
-  m_urlPathLength(0),
-  m_route(NULL) {
+Request::Request()
+  : m_clientObject(NULL),
+    m_methodType(GET),
+    m_pushbackDepth(0),
+    m_readingContent(false),
+    m_contentLeft(0),
+    m_bytesRead(0),
+    m_headerTail(NULL),
+    m_query(NULL),
+    m_timedOut(false),
+    m_path(NULL),
+    m_pathLength(0),
+    m_route(NULL) {}
+
+bool Request::body(byte *buffer, int bufferLength) {
+  while (contentLeft() && bufferLength-- && !m_timedOut) {
+    *buffer++ = read();
+  }
+
+  return !contentLeft();
 }
 
-/* Initializes the request instance ready to process the incoming HTTP request. */
-void Request::m_init(Client *client, char* buff, int bufflen) {
+/* Initializes the request instance ready to process the incoming HTTP request.
+*/
+void Request::m_init(Client *client, char *buff, int bufflen) {
   m_clientObject = client;
   m_bytesRead = 0;
-  m_urlPath = buff;
-  m_urlPathLength = bufflen - 1;
+  m_path = buff;
+  m_pathLength = bufflen - 1;
   m_pushbackDepth = 0;
   m_contentLeft = 0;
+  m_timedOut = false;
   m_readingContent = false;
-  m_methodType = INVALID;
+  m_methodType = GET;
 }
 
-/* Processes the first line of the HTTP request to parse method, verb and query. */
-void Request::m_processRequestLine() {
-  char * request = m_urlPath;
-  int bufferLeft = m_urlPathLength;
-
-  // store the HTTP method line of the request
+bool Request::m_processMethod() {
   if (m_expect("GET ")) {
     m_methodType = GET;
   } else if (m_expect("HEAD ")) {
@@ -72,9 +75,15 @@ void Request::m_processRequestLine() {
   } else if (m_expect("OPTIONS ")) {
     m_methodType = OPTIONS;
   } else {
-    return;
+    return false;
   }
 
+  return true;
+}
+
+bool Request::m_readURL() {
+  char *request = m_path;
+  int bufferLeft = m_pathLength;
   int ch;
   while ((ch = read()) != -1) {
     if (ch == ' ' || ch == '\n' || ch == '\r') {
@@ -82,22 +91,20 @@ void Request::m_processRequestLine() {
     }
 
     if (bufferLeft-- > 0) {
-      *request = ch;
-      request++;
+      *request++ = ch;
     }
   }
   *request = 0;
 
-  m_queryComplete = bufferLeft;
+  return bufferLeft >= -1;
 }
 
 void Request::m_processURL() {
-  char * qmLocation = strchr(m_urlPath, '?');
+  char *qmLocation = strchr(m_path, '?');
   int qmOffset = (qmLocation == NULL) ? 0 : 1;
 
-  m_urlPathLength =
-    (qmLocation == NULL) ? strlen(m_urlPath) : (qmLocation - m_urlPath);
-  m_query = m_urlPath + m_urlPathLength + qmOffset;
+  m_pathLength = (qmLocation == NULL) ? strlen(m_path) : (qmLocation - m_path);
+  m_query = m_path + m_pathLength + qmOffset;
 
   if (qmOffset) {
     *qmLocation = 0;
@@ -105,7 +112,7 @@ void Request::m_processURL() {
 }
 
 void Request::m_decodeURL() {
-  char *leader = m_urlPath;
+  char *leader = m_path;
   char *follower = leader;
 
   while (*leader) {
@@ -140,7 +147,7 @@ void Request::m_decodeURL() {
 }
 
 /* Processes the header fields of the request */
-void Request::m_processHeaders(HeaderNode* headerTail) {
+bool Request::m_processHeaders(HeaderNode *headerTail) {
   m_headerTail = headerTail;
 
   while (true) {
@@ -150,14 +157,19 @@ void Request::m_processHeaders(HeaderNode* headerTail) {
     }
 
     bool match = false;
-    HeaderNode* headerNode = m_headerTail;
+    HeaderNode *headerNode = m_headerTail;
 
     while (headerNode != NULL) {
-      if (m_expect(headerNode->name) ) {
+      if (m_expect(headerNode->name)) {
         char c = read();
+        if (m_timedOut) {
+          return false;
+        }
 
         if (c == ':') {
-          m_readHeader(headerNode->buffer, headerNode->size);
+          if (!m_readHeader(headerNode->buffer, headerNode->size)) {
+            return false;
+          }
           match = true;
           break;
         } else {
@@ -174,12 +186,11 @@ void Request::m_processHeaders(HeaderNode* headerTail) {
 
     if (m_expect(CRLF CRLF)) {
       m_readingContent = true;
-      return;
+      return true;
     }
 
-    // no expect checks hit, so just absorb a character and try again
     if (read() == -1) {
-      return;
+      return true;
     }
   }
 }
@@ -194,15 +205,19 @@ int Request::contentLeft() {
   return m_contentLeft;
 }
 
-char * Request::urlPath() {
-  return m_urlPath;
+char *Request::path() {
+  return m_path;
 }
 
 int Request::m_getUrlPathLength() {
-  return m_urlPathLength;
+  return m_pathLength;
 }
 
-bool Request::route(const char * name, char *paramBuffer, int paramBufferLen) {
+bool Request::timedOut() {
+  return m_timedOut;
+}
+
+bool Request::route(const char *name, char *paramBuffer, int paramBufferLen) {
   int part = 0;
   int i = 1;
 
@@ -230,7 +245,7 @@ bool Request::route(int number, char *paramBuffer, int paramBufferLen) {
   int part = 0;
   int i = 1;
   int read = 0;
-  char * routeStart = m_urlPath + m_prefixLength;
+  char *routeStart = m_path + m_prefixLength;
 
   while (routeStart[i]) {
     if (routeStart[i++] == '/') {
@@ -249,14 +264,16 @@ bool Request::route(int number, char *paramBuffer, int paramBufferLen) {
   return false;
 }
 
-/* Return a char pointer to the request query placed after the ? character in the URL */
-char * Request::query() {
+/* Return a char pointer to the request query placed after the ? character in
+   the URL */
+char *Request::query() {
   return m_query;
 }
 
-/* Returns a single query parameter by name. For example with  request to URL /search?query=word request.query("query")
-   would return a char pointer to "word" */
-bool Request::query(const char * key, char *paramBuffer, int paramBufferLen) {
+/* Returns a single query parameter by name. For example with  request to URL
+   /search?query=word request.query("query") would return a char pointer to
+   "word" */
+bool Request::query(const char *key, char *paramBuffer, int paramBufferLen) {
   memset(paramBuffer, 0, paramBufferLen);
   int charsRead = 0;
 
@@ -279,13 +296,9 @@ bool Request::query(const char * key, char *paramBuffer, int paramBufferLen) {
   return false;
 }
 
-/* Returns a boolean value indicating if the query was parsed completely or didn't it fit to the  buffer */
-bool Request::queryComplete() {
-  return m_queryComplete;
-}
-
-/* Reads the next available POST parameter name and value from the request body */
-bool Request::postParam(char *name, int nameLen, char *value, int valueLen) {
+/* Reads the next available POST parameter name and value from the request body
+*/
+bool Request::formParam(char *name, int nameLen, char *value, int valueLen) {
   int ch;
   bool foundSomething = false;
   memset(name, 0, nameLen);
@@ -294,33 +307,36 @@ bool Request::postParam(char *name, int nameLen, char *value, int valueLen) {
   --valueLen;
 
   while ((ch = read()) != -1) {
+    if (m_timedOut) {
+      return false;
+    }
+
     foundSomething = true;
 
     if (ch == '+') {
       ch = ' ';
-    }
-
-    else if (ch == '=') {
+    } else if (ch == '=') {
       nameLen = 0;
       continue;
-    }
-
-    else if (ch == '&') {
+    } else if (ch == '&') {
       return true;
-    }
-
-    else if (ch == '%') {
-
+    } else if (ch == '%') {
       char ch1 = read();
+      if (m_timedOut) {
+        return false;
+      }
+
       char ch2 = read();
+      if (m_timedOut) {
+        return false;
+      }
 
       if (ch1 == -1 || ch2 == -1) {
         return false;
       }
 
-      char hex[3] = { ch1, ch2, 0 };
+      char hex[3] = {ch1, ch2, 0};
       ch = m_hexToInt(hex);
-
     }
 
     if (nameLen > 0) {
@@ -342,11 +358,11 @@ bool Request::postParam(char *name, int nameLen, char *value, int valueLen) {
 }
 
 /* Returns a pointer to a header value */
-char * Request::header(const char *name) {
-  HeaderNode* headerNode = m_headerTail;
+char *Request::header(const char *name) {
+  HeaderNode *headerNode = m_headerTail;
 
   while (headerNode != NULL) {
-    if (strcmp(headerNode->name, name) == 0) {
+    if (WebApp::strcmpi(headerNode->name, name) == 0) {
       return headerNode->buffer;
     }
 
@@ -356,7 +372,7 @@ char * Request::header(const char *name) {
   return NULL;
 }
 
-void Request::m_setRoute(int prefixLength, const char * routeString) {
+void Request::m_setRoute(int prefixLength, const char *routeString) {
   m_prefixLength = prefixLength;
   m_route = routeString;
 }
@@ -370,6 +386,8 @@ int Request::read() {
   if (m_clientObject == NULL) {
     return -1;
   }
+
+  m_timedOut = false;
 
   if (m_pushbackDepth == 0) {
     unsigned long timeoutTime = millis() + SERVER_READ_TIMEOUT_IN_MS;
@@ -397,7 +415,7 @@ int Request::read() {
         unsigned long now = millis();
 
         if (now > timeoutTime) {
-          m_reset();
+          m_timedOut = true;
           return -1;
         }
       }
@@ -414,19 +432,20 @@ int Request::bytesRead() {
 }
 
 int Request::peek() {
-  int c = read();
+  uint8_t c = read();
   push(c);
 
   return c;
 }
 
-void Request::push(int ch) {
+void Request::push(uint8_t ch) {
   if (ch == -1) {
     return;
   }
 
   m_pushback[m_pushbackDepth++] = ch;
 
+  // can't raise error here, so just replace last char over and over
   if (m_pushbackDepth == SIZE(m_pushback)) {
     m_pushbackDepth = SIZE(m_pushback) - 1;
   }
@@ -437,6 +456,9 @@ bool Request::m_expect(const char *str) {
 
   while (*curr != 0) {
     int ch = read();
+    if (m_timedOut) {
+      return false;
+    }
 
     if (tolower(ch) != tolower(*curr++)) {
       push(ch);
@@ -453,20 +475,22 @@ bool Request::m_expect(const char *str) {
 }
 
 void Request::m_reset() {
-  HeaderNode* headerNode = m_headerTail;
+  HeaderNode *headerNode = m_headerTail;
   while (headerNode != NULL) {
     headerNode->buffer[0] = '\0';
     headerNode = headerNode->next;
   }
 }
 
-void Request::m_readHeader(char *value, int valueLen) {
+bool Request::m_readHeader(char *value, int valueLen) {
   int ch;
   memset(value, 0, valueLen);
-  --valueLen;
 
   do {
     ch = read();
+    if (m_timedOut) {
+      return false;
+    }
   } while (ch == ' ' || ch == '\t');
 
   do {
@@ -476,9 +500,15 @@ void Request::m_readHeader(char *value, int valueLen) {
     }
 
     ch = read();
+    if (m_timedOut) {
+      return false;
+    }
+
   } while (ch != '\r');
 
   push(ch);
+
+  return valueLen;
 }
 
 bool Request::m_readInt(int &number) {
@@ -491,12 +521,18 @@ bool Request::m_readInt(int &number) {
   // absorb whitespace
   do {
     ch = read();
+    if (m_timedOut) {
+      return false;
+    }
   } while (ch == ' ' || ch == '\t');
 
   // check for leading minus sign
   if (ch == '-') {
     negate = true;
     ch = read();
+    if (m_timedOut) {
+      return false;
+    }
   }
 
   // read digits to update number, exit when we find non-digit
@@ -504,6 +540,9 @@ bool Request::m_readInt(int &number) {
     gotNumber = true;
     number = number * 10 + ch - '0';
     ch = read();
+    if (m_timedOut) {
+      return false;
+    }
   }
 
   push(ch);
@@ -530,7 +569,7 @@ int Request::m_hexToInt(char *hex) {
     } else if (c >= 'A' && c <= 'F') {
       converted *= 16;
       converted += (c - 'A') + 10;
-    }  else {
+    } else {
       break;
     }
 
@@ -541,35 +580,56 @@ int Request::m_hexToInt(char *hex) {
 }
 
 /* Request class constructor. */
-Response::Response() :
-  m_clientObject(NULL),
-  m_headersCount(0),
-  m_bytesSent(0),
-  m_ended(false),
-  m_bufFill(0) {
-}
+Response::Response()
+  : m_clientObject(NULL),
+    m_contentTypeSet(false),
+    m_statusSent(false),
+    m_isHeadersSent(false),
+    m_sendingStatus(false),
+    m_sendingHeaders(false),
+    m_headersCount(0),
+    m_bytesSent(0),
+    m_ended(false),
+    m_bufFill(0) {}
 
 /* Initializes the request instance ready for outputting the HTTP response. */
 void Response::m_init(Client *client) {
   m_clientObject = client;
+  m_contentTypeSet = false;
+  m_statusSent = false;
+  m_isHeadersSent = false;
+  m_sendingStatus = false;
+  m_sendingHeaders = false;
   m_bytesSent = 0;
   m_headersCount = 0;
   m_ended = false;
 }
 
 void Response::writeP(const unsigned char *data, size_t length) {
+  if (m_shouldPrintHeaders()) {
+    m_printHeaders();
+  }
+
   while (length--) {
     write(pgm_read_byte(data++));
   }
 }
 
 void Response::printP(const unsigned char *str) {
+  if (m_shouldPrintHeaders()) {
+    m_printHeaders();
+  }
+
   while (uint8_t value = pgm_read_byte(str++)) {
     write(value);
   }
 }
 
 size_t Response::write(uint8_t ch) {
+  if (m_shouldPrintHeaders()) {
+    m_printHeaders();
+  }
+
   m_buffer[m_bufFill++] = ch;
 
   if (m_bufFill == SERVER_OUTPUT_BUFFER_SIZE) {
@@ -582,7 +642,11 @@ size_t Response::write(uint8_t ch) {
   return bytesSent;
 }
 
-size_t Response::write(uint8_t* buffer, size_t size) {
+size_t Response::write(uint8_t *buffer, size_t size) {
+  if (m_shouldPrintHeaders()) {
+    m_printHeaders();
+  }
+
   m_flushBuf();
   m_clientObject->write(buffer, size);
   m_bytesSent += size;
@@ -599,6 +663,7 @@ int Response::bytesSent() {
 }
 
 void Response::end() {
+  m_printHeaders();
   m_ended = true;
 }
 
@@ -612,121 +677,149 @@ void Response::set(const char *name, const char *value) {
     m_headers[m_headersCount].name = name;
     m_headers[m_headersCount].value = value;
     m_headersCount++;
+
+    if (WebApp::strcmpi(name, "Content-Type") == 0) {
+      m_contentTypeSet = true;
+    }
   }
 }
 
-/* Sends default status and headers indicating a successful request. */
-void Response::success(const char *contentType) {
-  P(successMsg1) =
-    "HTTP/1.0 200 OK" CRLF
-    "Content-Type: ";
+void Response::m_printStatus(int code) {
+  switch (code) {
+    case 200:
+      printP("OK");
+      break;
+    case 201:
+      printP("Created");
+      break;
+    case 202:
+      printP("Accepted");
+      break;
+    case 204:
+      printP("No Content");
+      break;
+    case 206:
+      printP("Partial Content");
+      break;
+    case 301:
+      printP("Moved Permanently");
+      break;
+    case 302:
+      printP("Moved Temporarily");
+      break;
+    case 303:
+      printP("See Other");
+      break;
+    case 304:
+      printP("Not Modified");
+      break;
+    case 307:
+      printP("Temporary Redirect");
+      break;
+    case 308:
+      printP("Permanent Redirect");
+      break;
+    case 400:
+      printP("Bad Request");
+      break;
+    case 401:
+      printP("Unauthorized");
+      break;
+    case 402:
+      printP("Payment Required");
+      break;
+    case 403:
+      printP("Forbidden");
+      break;
+    case 404:
+      printP("Not Found");
+      break;
+    case 405:
+      printP("Not Allowed");
+      break;
+    case 406:
+      printP("Not Acceptable");
+      break;
+    case 408:
+      printP("Request Time-out");
+      break;
+    case 409:
+      printP("Conflict");
+      break;
+    case 410:
+      printP("Gone");
+      break;
+    case 411:
+      printP("Length Required");
+      break;
+    case 412:
+      printP("Precondition Failed");
+      break;
+    case 413:
+      printP("Request Entity Too Large");
+      break;
+    case 414:
+      printP("Request-URI Too Large");
+      break;
+    case 415:
+      printP("Unsupported Media Type");
+      break;
+    case 416:
+      printP("Requested Range Not Satisfiable");
+      break;
+    case 421:
+      printP("Misdirected Request");
+      break;
+    case 429:
+      printP("Too Many Requests");
+      break;
+    case 431:
+      printP("Request Header Fields Too Large");
+      break;
+    case 500:
+      printP("Internal Server Error");
+      break;
+    case 501:
+      printP("Not Implemented");
+      break;
+    case 502:
+      printP("Bad Gateway");
+      break;
+    case 503:
+      printP("Service Temporarily Unavailable");
+      break;
+    case 504:
+      printP("Gateway Time-out");
+      break;
+    case 505:
+      printP("HTTP Version Not Supported");
+      break;
+    case 507:
+      printP("Insufficient Storage");
+      break;
+    default: {
+        print(code);
+        break;
+      }
+  }
+}
 
-  printP(successMsg1);
-  print(contentType);
+void Response::status(int code) {
+  m_sendingStatus = true;
+  printP("HTTP/1.0 ");
+  print(code);
+  print(" ");
+  m_printStatus(code);
+
   m_printCRLF();
-  m_printHeaders();
-  m_printCRLF();
+  m_statusSent = true;
+  m_sendingStatus = false;
 }
 
-/* Sends default status and headers indicating a creation of an resource. */
-void Response::created(const char *contentType) {
-  P(successMsg1) =
-    "HTTP/1.0 201 Created" CRLF
-    "Content-Type: ";
-
-  printP (successMsg1);
-  print(contentType);
-  m_printCRLF();
+void Response::sendStatus(int code) {
+  status(code);
   m_printHeaders();
-  m_printCRLF();
-}
-
-/* Sends default status and headers indicating a successful request without any response body. */
-void Response::noContent() {
-  P(noContentMsg) = "HTTP/1.0 204 No Content" CRLF;
-
-  printP(noContentMsg);
-  m_printHeaders();
-  m_printCRLF();
-}
-
-/* Sends redirection response. */
-void Response::seeOther(const char *otherURL) {
-  P(seeOtherMsg) =
-    "HTTP/1.0 303 See Other" CRLF
-    "Location: ";
-
-  printP (seeOtherMsg);
-  print(otherURL);
-  m_printHeaders();
-  m_printCRLF();
-}
-
-void Response::notModified() {
-  P(noContentMsg) = "HTTP/1.0 304 Not Modified" CRLF;
-
-  printP(noContentMsg);
-  m_printHeaders();
-  m_printCRLF();
-}
-
-/* Sends a default error response for a failed request. */
-void Response::fail() {
-  P(failMsg1) = "HTTP/1.0 400 Bad Request" CRLF;
-  P(failMsg2) = "Content-Type: text/html" CRLF
-                CRLF SERVER_FAIL_MESSAGE;
-
-  printP(failMsg1);
-  m_printHeaders();
-  printP(failMsg2);
-}
-
-/* Sends a default error response for a unauthorized request. */
-void Response::unauthorized() {
-  P(failMsg1) =
-    "HTTP/1.0 401 Unauthorized" CRLF
-    "Content-Type: text/html" CRLF;
-  P(failMsg2) = CRLF SERVER_AUTH_MESSAGE;
-
-  printP(failMsg1);
-  m_printHeaders();
-  printP(failMsg2);
-}
-
-/* Sends a default error response for a unauthorized request. */
-void Response::forbidden() {
-  P(failMsg1) =
-    "HTTP/1.0 403 Forbidden" CRLF
-    "Content-Type: text/html" CRLF;
-  P(failMsg2) = CRLF SERVER_FORBIDDEN_MESSAGE;
-
-  printP(failMsg1);
-  m_printHeaders();
-  printP(failMsg2);
-}
-
-/* Sends a default error response for request targeted to an nonexistent resource. */
-void Response::notFound() {
-  P(failMsg1) =
-    "HTTP/1.0 404 Not Found" CRLF
-    "Content-Type: text/html" CRLF;
-  P(failMsg2) = CRLF SERVER_NOT_FOUND_MESSAGE;
-
-  printP(failMsg1);
-  m_printHeaders();
-  printP(failMsg2);
-}
-
-/* Sends a default default error response for a failed request handling. */
-void Response::serverError() {
-  P(failMsg1) =
-    "HTTP/1.0 500 Internal Server Error" CRLF
-    "Content-Type: text/html" CRLF;
-  P(failMsg2) = CRLF SERVER_SERVER_ERROR_MESSAGE;
-
-  printP(failMsg1);
-  m_printHeaders();
-  printP(failMsg2);
+  m_printStatus(code);
 }
 
 void Response::m_reset() {
@@ -739,12 +832,34 @@ void Response::m_printCRLF() {
 }
 
 void Response::m_printHeaders() {
+  m_sendingHeaders = true;
+
+  if (!m_statusSent) {
+    status(200);
+  }
+
+  if (!m_contentTypeSet) {
+    set("Content-Type", "text/plain");
+  }
+
   for (byte i = 0; i < m_headersCount; i++) {
     print(m_headers[i].name);
     print(": ");
     print(m_headers[i].value);
     m_printCRLF();
   }
+
+  m_printCRLF();
+  m_sendingHeaders = false;
+  m_isHeadersSent = true;
+}
+
+bool Response::m_headersSent() {
+  return m_isHeadersSent;
+}
+
+bool Response::m_shouldPrintHeaders() {
+  return (!m_isHeadersSent && !m_sendingHeaders && !m_sendingStatus);
 }
 
 void Response::m_flushBuf() {
@@ -755,30 +870,23 @@ void Response::m_flushBuf() {
 }
 
 /* Router class constructor with an optional URL prefix parameter */
-Router::Router(const char * urlPrefix) :
-  m_tailCommand(NULL),
-  m_next(NULL),
-  m_urlPrefix(urlPrefix) {
-}
+Router::Router(const char *urlPrefix)
+  : m_tailCommand(NULL), m_next(NULL), m_urlPrefix(urlPrefix) {}
 
-bool Router::m_dispatchCommands(Request& request, Response& response) {
+bool Router::m_dispatchCommands(Request &request, Response &response) {
   bool routeFound = false;
   int prefixLength = strlen(m_urlPrefix);
 
-  if (strncmp(m_urlPrefix, request.urlPath(), prefixLength) == 0) {
-    char * trimmedPath = request.urlPath() + prefixLength;
+  if (strncmp(m_urlPrefix, request.path(), prefixLength) == 0) {
+    char *trimmedPath = request.path() + prefixLength;
 
-    CommandNode * command = m_tailCommand;
+    CommandNode *command = m_tailCommand;
 
     while (command != NULL && !response.ended()) {
-      if (command->type == request.method()
-          || command->type == Request::ALL
-          || command->type == Request::USE) {
-
-        if (command->type == Request::USE
-            || m_routeMatch(trimmedPath,
-                            command->urlPattern)) {
-
+      if (command->type == request.method() || command->type == Request::ALL ||
+          command->type == Request::USE) {
+        if (command->type == Request::USE ||
+            m_routeMatch(trimmedPath, command->urlPattern)) {
           if (command->type != Request::USE) {
             routeFound = true;
           }
@@ -795,58 +903,67 @@ bool Router::m_dispatchCommands(Request& request, Response& response) {
   return routeFound;
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type GET matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type GET matches the url pattern. */
 void Router::get(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::GET, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type POST matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type POST matches the url pattern. */
 void Router::post(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::POST, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type PUT matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type PUT matches the url pattern. */
 void Router::put(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::PUT, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type DELETE matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type DELETE matches the url pattern. */
 void Router::del(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::DELETE, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type PATCH matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type PATCH matches the url pattern. */
 void Router::patch(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::PATCH, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request with method type OPTIONS matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request with method type OPTIONS matches the url pattern. */
 void Router::options(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::OPTIONS, urlPattern, command);
 }
 
-/* Mounts a middleware command to the router which is executed when a HTTP request regardless of method type matches the url pattern. */
+/* Mounts a middleware command to the router which is executed when a HTTP
+   request regardless of method type matches the url pattern. */
 void Router::all(const char *urlPattern, Middleware *command) {
   m_addCommand(Request::ALL, urlPattern, command);
 }
 
-/* Mounts a middleware command to be executed on every request regardless of method type and URL although possible router URL prefix has to match */
+/* Mounts a middleware command to be executed on every request regardless of
+   method type and URL although possible router URL prefix has to match */
 void Router::use(Middleware *command) {
   m_addCommand(Request::USE, NULL, command);
 }
 
-void Router::m_addCommand(Request::MethodType type, const char *urlPattern, Middleware *command) {
-  CommandNode* newCommand = (CommandNode*) malloc(sizeof(CommandNode));
+void Router::m_addCommand(Request::MethodType type, const char *urlPattern,
+                          Middleware *command) {
+  CommandNode *newCommand = (CommandNode *)malloc(sizeof(CommandNode));
 
   newCommand->urlPattern = urlPattern;
   newCommand->command = command;
   newCommand->type = type;
   newCommand->next = NULL;
 
-  if (m_tailCommand == NULL ) {
+  if (m_tailCommand == NULL) {
     m_tailCommand = newCommand;
   } else {
-    CommandNode * commandNode = m_tailCommand;
+    CommandNode *commandNode = m_tailCommand;
 
     while (commandNode->next != NULL) {
       commandNode = commandNode->next;
@@ -856,11 +973,11 @@ void Router::m_addCommand(Request::MethodType type, const char *urlPattern, Midd
   }
 }
 
-Router * Router::m_getNext() {
+Router *Router::m_getNext() {
   return m_next;
 }
 
-void Router::m_setNext(Router * next) {
+void Router::m_setNext(Router *next) {
   m_next = next;
 }
 
@@ -903,12 +1020,35 @@ bool Router::m_routeMatch(const char *text, const char *pattern) {
   return match;
 }
 
+int WebApp::strcmpi(const char *s1, const char *s2) {
+  int i;
+
+  for (i = 0; s1[i] && s2[i]; ++i) {
+    if (s1[i] == s2[i] || (s1[i] ^ 32) == s2[i]) {
+      continue;
+    }
+    {
+      break;
+    }
+  }
+
+  if (s1[i] == s2[i]) {
+    return 0;
+  }
+
+  if ((s1[i] | 32) < (s2[i] | 32)) {
+    return -1;
+  }
+
+  return 1;
+}
+
 /* Server class constructor. */
-WebApp::WebApp() :
-  m_clientObject(NULL),
-  m_failureCommand(&m_defaultFailCommand),
-  m_notFoundCommand(&m_defaultNotFoundCommand),
-  m_headerTail(NULL) {
+WebApp::WebApp()
+  : m_clientObject(NULL),
+    m_failureCommand(&m_defaultFailCommand),
+    m_notFoundCommand(&m_defaultNotFoundCommand),
+    m_headerTail(NULL) {
   m_routerTail = &m_defaultRouter;
 }
 
@@ -918,10 +1058,10 @@ void WebApp::process(Client *client) {
   process(client, request, SERVER_DEFAULT_REQUEST_LENGTH);
 }
 
-/* Processes an incoming connection with request buffer and length given as parameters. */
+/* Processes an incoming connection with request buffer and length given as
+   parameters. */
 void WebApp::process(Client *client, char *buff, int bufflen) {
   m_clientObject = client;
-  bool routeMatch = false;
 
   if (m_clientObject == NULL) {
     return;
@@ -929,88 +1069,125 @@ void WebApp::process(Client *client, char *buff, int bufflen) {
 
   m_request.m_init(m_clientObject, buff, bufflen);
   m_response.m_init(m_clientObject);
-  m_request.m_processRequestLine();
 
-  if (m_request.method() == Request::INVALID) {
-    m_failureCommand(m_request, m_response);
-  } else {
-    m_request.m_decodeURL();
-    m_request.m_processURL();
-    m_request.m_processHeaders(m_headerTail);
-
-    Router* routerNode = m_routerTail;
-
-    while (routerNode != NULL && !m_response.ended()) {
-      if (routerNode->m_dispatchCommands(m_request, m_response)) {
-        routeMatch = true;
-      }
-
-      routerNode = routerNode->m_getNext();
-    }
-
-    if (!routeMatch && !m_response.ended()) {
-      m_notFoundCommand(m_request, m_response);
-    }
-  }
+  m_process();
 
   m_request.m_reset();
   m_response.m_reset();
 }
 
-/* Sets the default failure command for the server. Executed whem request is considered malformed. */
+void WebApp::m_process() {
+  bool routeMatch = false;
+
+  if (!m_request.m_processMethod()) {
+    return m_response.sendStatus(400);
+  }
+
+  if (m_request.timedOut()) {
+    return m_response.sendStatus(408);
+  }
+
+  if (!m_request.m_readURL()) {
+    return m_response.sendStatus(414);
+  }
+
+  if (m_request.timedOut()) {
+    return m_response.sendStatus(408);
+  }
+
+  m_request.m_decodeURL();
+  m_request.m_processURL();
+
+  if (!m_request.m_processHeaders(m_headerTail)) {
+    return m_response.sendStatus(431);
+  }
+
+  if (m_request.timedOut()) {
+    return m_response.sendStatus(408);
+  }
+
+  Router *routerNode = m_routerTail;
+
+  while (routerNode != NULL && !m_response.ended()) {
+    if (routerNode->m_dispatchCommands(m_request, m_response)) {
+      routeMatch = true;
+    }
+
+    routerNode = routerNode->m_getNext();
+  }
+
+  if (!routeMatch && !m_response.ended()) {
+    return m_notFoundCommand(m_request, m_response);
+  }
+
+  if (!m_response.ended() && !m_response.m_headersSent()) {
+    m_response.m_printHeaders();
+  }
+}
+
+/* Sets the default failure command for the server. Executed whem request is
+   considered malformed. */
 void WebApp::failCommand(Router::Middleware *command) {
   m_failureCommand = command;
 }
 
-/* Sets the default not found command for the server. Executed whem no routes match the query. */
+/* Sets the default not found command for the server. Executed whem no routes
+   match the query. */
 void WebApp::notFoundCommand(Router::Middleware *command) {
   m_notFoundCommand = command;
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type GET matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type GET matches the url pattern. */
 void WebApp::get(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::GET, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type POST matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type POST matches the url pattern. */
 void WebApp::post(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::POST, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type PUT matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type PUT matches the url pattern. */
 void WebApp::put(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::PUT, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type DELETE matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type DELETE matches the url pattern. */
 void WebApp::del(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::DELETE, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type PATCH matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type PATCH matches the url pattern. */
 void WebApp::patch(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::PATCH, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request with method type OPTIONS matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request with method type OPTIONS matches the url pattern. */
 void WebApp::options(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::OPTIONS, urlPattern, command);
 }
 
-/* Mounts a middleware command to the default router which is executed when a HTTP request regardless of method type matches the url pattern. */
+/* Mounts a middleware command to the default router which is executed when a
+   HTTP request regardless of method type matches the url pattern. */
 void WebApp::all(const char *urlPattern, Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::ALL, urlPattern, command);
 }
 
-/* Mounts a middleware command to be executed on every request regardless of method type and url */
+/* Mounts a middleware command to be executed on every request regardless of
+   method type and url */
 void WebApp::use(Router::Middleware *command) {
   m_defaultRouter.m_addCommand(Request::USE, NULL, command);
 }
 
 /* Mounts a Router instance to the server. */
-void WebApp::use(Router * router) {
-
-  Router * routerNode = m_routerTail;
+void WebApp::use(Router *router) {
+  Router *routerNode = m_routerTail;
 
   while (routerNode->m_getNext() != NULL) {
     routerNode = routerNode->m_getNext();
@@ -1019,18 +1196,19 @@ void WebApp::use(Router * router) {
   routerNode->m_setNext(router);
 }
 
-void WebApp::readHeader(const char* name, char* buffer, int bufflen) {
-  Request::HeaderNode* newNode = (Request::HeaderNode*) malloc(sizeof(Request::HeaderNode));
+void WebApp::readHeader(const char *name, char *buffer, int bufflen) {
+  Request::HeaderNode *newNode =
+    (Request::HeaderNode *)malloc(sizeof(Request::HeaderNode));
 
   newNode->name = name;
   newNode->buffer = buffer;
   newNode->size = bufflen;
   newNode->next = NULL;
 
-  if (m_headerTail == NULL ) {
+  if (m_headerTail == NULL) {
     m_headerTail = newNode;
   } else {
-    Request::HeaderNode * headerNode = m_headerTail;
+    Request::HeaderNode *headerNode = m_headerTail;
 
     while (headerNode->next != NULL) {
       headerNode = headerNode->next;
@@ -1042,10 +1220,10 @@ void WebApp::readHeader(const char* name, char* buffer, int bufflen) {
 
 /* Executed when request is considered malformed. */
 void WebApp::m_defaultFailCommand(Request &request, Response &response) {
-  response.fail();
+  response.sendStatus(400);
 }
 
 /* Executed when no routes match the query. */
 void WebApp::m_defaultNotFoundCommand(Request &request, Response &response) {
-  response.notFound();
+  response.sendStatus(404);
 }

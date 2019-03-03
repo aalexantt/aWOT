@@ -1,6 +1,5 @@
 /*
   aWOT, Express.js inspired  microcontreller web framework for the Web of Things
-  Copyright 2014 Lasse Lukkari
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -101,24 +100,27 @@ class Request: public Stream {
     MethodType method();
     int contentLeft();
 
-    char * urlPath();
+    char * path();
 
     bool route(const char *key, char *paramBuffer, int paramBufferLen);
     bool route(int number, char *paramBuffer, int paramBufferLen);
 
     char * query();
     bool query(const char *key, char *paramBuffer, int paramBufferLen);
-    bool queryComplete();
 
-    bool postParam(char *name, int nameLen, char *value, int valueLen);
+    bool formParam(char *name, int nameLen, char *value, int valueLen);
 
     char * header(const char *name);
+
+    bool body(byte *buffer, int bufferLen);
+
+    bool timedOut();
 
     int available();
     int read();
     int bytesRead();
     int peek();
-    void push(int ch);
+    void push(uint8_t ch);
 
     // dummy implementation to fulfill the Stream interface
     size_t write(uint8_t ch) {
@@ -130,15 +132,17 @@ class Request: public Stream {
 
   private:
     void m_init(Client *client, char* buff, int bufflen);
-    void m_processRequestLine();
+    bool m_processMethod();
+    bool m_readURL();
     void m_processURL();
     void m_decodeURL();
-    void m_processHeaders(HeaderNode* headerTail);
+    bool m_processHeaders(HeaderNode* headerTail);
+
     void m_setRoute(int prefixLength, const char * routeString);
     int m_getUrlPathLength();
     void m_reset();
 
-    void m_readHeader(char *value, int valueLen);
+    bool m_readHeader(char *value, int valueLen);
     bool m_readInt(int &number);
     bool m_expect(const char *expectedStr);
 
@@ -154,10 +158,10 @@ class Request: public Stream {
     HeaderNode* m_headerTail;
 
     char * m_query;
-    bool m_queryComplete;
+    bool m_timedOut;
 
-    char * m_urlPath;
-    int m_urlPathLength;
+    char * m_path;
+    int m_pathLength;
     int m_prefixLength;
 
     int m_hexToInt(char *hex);
@@ -185,23 +189,12 @@ class Response: public Stream {
     void flush();
     int bytesSent();
 
+    void status(int code);
+    void sendStatus(int code);
     void end();
     bool ended();
 
     void set(const char* name, const char* value);
-
-    void success(const char *contentType);
-    void created(const char *contentType);
-    void noContent();
-
-    void seeOther(const char *otherURL);
-    void notModified();
-
-    void fail();
-    void unauthorized();
-    void forbidden();
-    void notFound();
-    void serverError();
 
     //dummy implementations to fulfill Stream interface
     int available() {
@@ -220,7 +213,11 @@ class Response: public Stream {
     void m_reset();
     void m_printCRLF();
     void m_printHeaders();
+    bool m_headersSent();
+    bool m_shouldPrintHeaders();
     void m_flushBuf();
+    void m_printStatus(int code);
+
 
     Client * m_clientObject;
 
@@ -229,6 +226,11 @@ class Response: public Stream {
       const char* value;
     } m_headers[SERVER_HEADERS_COUNT];
 
+    bool m_contentTypeSet;
+    bool m_statusSent;
+    bool m_isHeadersSent;
+    bool m_sendingStatus;
+    bool m_sendingHeaders;
     unsigned int m_headersCount;
     int m_bytesSent;
     bool m_ended;
@@ -278,6 +280,7 @@ class WebApp {
   public:
     WebApp();
 
+    static int strcmpi(const char *s1, const char *s2);
     void process(Client *client);
     void process(Client *client, char* buff, int bufflen);
 
@@ -297,6 +300,7 @@ class WebApp {
 
   private:
 
+    void m_process();
     static void m_defaultFailCommand(Request &request, Response &response);
     static void m_defaultNotFoundCommand(Request &request, Response &response);
 

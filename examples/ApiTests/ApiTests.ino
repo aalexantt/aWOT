@@ -15,23 +15,23 @@ void cors(Request &req, Response &res) {
   res.set("Access-Control-Allow-Headers", "Content-Type, Test1, Test2");
 
   if (req.method() == Request::OPTIONS) {
-    res.noContent();
+    res.status(204);
     res.end();
   }
 }
 
 void index(Request &req, Response &res) {
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   res.print("/");
 }
 
 void use(Request &req, Response &res) {
-  res.noContent();
+  res.status(204);
   res.end();
 }
 
 void noContent(Request &req, Response &res) {
-  res.noContent();
+  res.status(204);
 }
 
 void queryParams(Request &req, Response &res) {
@@ -41,7 +41,7 @@ void queryParams(Request &req, Response &res) {
   req.query("test1", test1, 64);
   req.query("test2", test2, 64);
 
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   res.print(test1);
   res.print(" ");
   res.print(test2);
@@ -53,7 +53,7 @@ void routeNameParams(Request &req, Response &res) {
   req.route("test1", test1, 64);
   req.route("test2", test2, 64);
 
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   res.print(test1);
   res.print(" ");
   res.print(test2);
@@ -65,20 +65,20 @@ void routeNumberParams(Request &req, Response &res) {
   req.route(2, test1, 64);
   req.route(4, test2, 64);
 
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   res.print(test1);
   res.print(" ");
   res.print(test2);
 }
 
 
-void postParams(Request &req, Response &res) {
+void formParams(Request &req, Response &res) {
   char name[10];
   char value[64];
 
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   while (req.contentLeft()) {
-    req.postParam(name, 10, value, 64);
+    req.formParam(name, 10, value, 64);
     res.print(name);
     res.print(":");
     res.print(value);
@@ -88,54 +88,50 @@ void postParams(Request &req, Response &res) {
   }
 }
 
-char test1Header[200];
-char test2Header[200];
+char test1Header[10];
+char test2Header[10];
 void headers(Request &req, Response &res) {
   char * test1 = req.header("Test1");
   char * test2 = req.header("Test2");
 
-  res.success("text/plain");
+  res.set("Content-Type", "text/plain");
   res.print(test1);
   res.print(" ");
   res.print(test2);
 }
 
 void urlEscaping(Request &req, Response &res) {
-  res.success("text/plain");
-  res.print(req.urlPath());
+  res.set("Content-Type", "text/plain");
+  res.print(req.path());
   res.print(" ");
   res.print(req.query());
 }
 
 void fail(Request &req, Response &res) {
-  res.fail();
+  res.sendStatus(400);
 }
 
 void unauthorized(Request &req, Response &res) {
-  res.unauthorized();
+  res.sendStatus(401);
 }
 
 void forbidden(Request &req, Response &res) {
-  res.forbidden();
+  res.sendStatus(403);
 }
 
 void notFound(Request &req, Response &res) {
-  res.notFound();
+  res.sendStatus(404);
 }
 
 void serverError(Request &req, Response &res) {
-  res.serverError();
+  res.sendStatus(500);
 }
 
-uint8_t readWriteBuffer[10000];
+byte readWriteBuffer[10000];
 void readWrite(Request &req, Response &res) {
-
-  int i = 0;
-  while (req.contentLeft() && i < 10000) {
-    readWriteBuffer[i++] = req.read();
-  }
-  res.success("application/binary");
-  res.write(readWriteBuffer, i);
+  req.body(readWriteBuffer, 10000);
+  res.set("Content-Type", "application/binary");
+  res.write(readWriteBuffer, 10000);
 }
 
 void setup() {
@@ -162,7 +158,7 @@ void setup() {
   app.get("/query", &queryParams);
   app.get("/route/name/:test1/params/:test2", &routeNameParams);
   app.get("/route/number/test1/params/test2", &routeNumberParams);
-  app.post("/postparams", &postParams);
+  app.post("/postparams", &formParams);
 
   router.get("/get", &noContent);
   router.get("/query", &queryParams);
@@ -170,8 +166,8 @@ void setup() {
   router.get("/route/number/test1/params/test2", &routeNumberParams);
   app.use(&router);
 
-  app.readHeader("Test1", test1Header, 200);
-  app.readHeader("Test2", test2Header, 200);
+  app.readHeader("Test1", test1Header, 10);
+  app.readHeader("Test2", test2Header, 10);
   app.get("/headers", &headers);
 
   app.get("/url escaping", &urlEscaping);
