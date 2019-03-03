@@ -84,18 +84,13 @@ bool Request::m_readURL() {
   char *request = m_path;
   int bufferLeft = m_pathLength;
   int ch;
-  while ((ch = read()) != -1) {
-    if (ch == ' ' || ch == '\n' || ch == '\r') {
-      break;
-    }
 
-    if (bufferLeft-- > 0) {
-      *request++ = ch;
-    }
+  while ((ch = read()) != -1 && ch != ' ' && ch != '\n' && ch != '\r' && --bufferLeft) {
+    *request++ = ch;
   }
   *request = 0;
 
-  return bufferLeft >= -1;
+  return bufferLeft > 0;
 }
 
 void Request::m_processURL() {
@@ -418,7 +413,6 @@ int Request::read() {
   }
 
   return -1;
-
 }
 
 int Request::bytesRead() {
