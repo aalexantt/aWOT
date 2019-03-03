@@ -22,7 +22,6 @@
 
 #include "aWOT.h"
 
-/* Request constructor. */
 Request::Request()
   : m_clientObject(NULL),
     m_methodType(GET),
@@ -242,21 +241,19 @@ bool Request::route(const char *name, char *paramBuffer, int paramBufferLen) {
 
 bool Request::route(int number, char *paramBuffer, int paramBufferLen) {
   memset(paramBuffer, 0, paramBufferLen);
-  int part = 0;
-  int i = 1;
-  int read = 0;
+  int part = -1;
   char *routeStart = m_path + m_prefixLength;
 
-  while (routeStart[i]) {
-    if (routeStart[i++] == '/') {
+  while (*routeStart) {
+    if (*routeStart++ == '/') {
       part++;
 
       if (part == number) {
-        while (routeStart[i] != '/' && read < paramBufferLen) {
-          paramBuffer[read++] = routeStart[i++];
+        while (*routeStart && *routeStart != '/' && --paramBufferLen) {
+          *paramBuffer++ = *routeStart++;
         }
 
-        return true;
+        return paramBufferLen > 0;
       }
     }
   }
