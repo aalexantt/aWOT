@@ -380,48 +380,45 @@ int Request::available() {
 }
 
 int Request::read() {
-  if (m_clientObject == NULL) {
-    return -1;
-  }
-
   m_timedOut = false;
 
-  if (m_pushbackDepth == 0) {
-    unsigned long timeoutTime = millis() + SERVER_READ_TIMEOUT_IN_MS;
+  if (m_pushbackDepth > 0) {
+    return m_pushback[--m_pushbackDepth];
+  }
 
-    while (m_clientObject->connected()) {
-      if (m_readingContent) {
-        if (m_contentLeft == 0) {
-          return -1;
-        }
-      }
+  unsigned long timeoutTime = millis() + SERVER_READ_TIMEOUT_IN_MS;
 
-      int ch = m_clientObject->read();
-
-      if (ch != -1) {
-        m_bytesRead++;
-
-        if (m_readingContent) {
-          --m_contentLeft;
-        }
-
-        return ch;
-      }
-
-      else {
-        unsigned long now = millis();
-
-        if (now > timeoutTime) {
-          m_timedOut = true;
-          return -1;
-        }
+  while (m_clientObject->connected()) {
+    if (m_readingContent) {
+      if (m_contentLeft == 0) {
+        return -1;
       }
     }
 
-    return -1;
-  } else {
-    return m_pushback[--m_pushbackDepth];
+    int ch = m_clientObject->read();
+
+    if (ch != -1) {
+      m_bytesRead++;
+
+      if (m_readingContent) {
+        --m_contentLeft;
+      }
+
+      return ch;
+    }
+
+    else {
+      unsigned long now = millis();
+
+      if (now > timeoutTime) {
+        m_timedOut = true;
+        return -1;
+      }
+    }
   }
+
+  return -1;
+
 }
 
 int Request::bytesRead() {
