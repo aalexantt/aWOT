@@ -267,21 +267,22 @@ char *Request::query() {
    "word" */
 bool Request::query(const char *key, char *paramBuffer, int paramBufferLen) {
   memset(paramBuffer, 0, paramBufferLen);
-  int charsRead = 0;
+  char * paramStart = m_query;
 
-  char *ch = strstr(m_query, key);
+  while ((paramStart = strstr(paramStart, key)) != NULL) {
+    paramStart += strlen(key);
+    Serial.println(paramStart);
 
-  if (ch) {
-    ch += strlen(key);
+    if (*paramStart == '&') {
+      return true;
+    }
 
-    if (*ch == '=') {
-      ch++;
-
-      while (*ch && *ch != '&' && charsRead < paramBufferLen) {
-        paramBuffer[charsRead++] = *ch++;
+    if (*paramStart++ == '=') {
+      while (*paramStart && *paramStart != '&' && --paramBufferLen) {
+        *paramBuffer++ = *paramStart++;
       }
 
-      return true;
+      return paramBufferLen > 0;
     }
   }
 
@@ -581,7 +582,7 @@ Response::Response()
     m_bufFill(0) {}
 
 /* Initializes the request instance ready for outputting the HTTP response. */
-void Response::m_init(Client *client) {
+void Response::m_init(Client * client) {
   m_clientObject = client;
   m_contentTypeSet = false;
   m_statusSent = false;
@@ -861,7 +862,7 @@ void Response::m_flushBuf() {
 Router::Router(const char *urlPrefix)
   : m_tailCommand(NULL), m_next(NULL), m_urlPrefix(urlPrefix) {}
 
-bool Router::m_dispatchCommands(Request &request, Response &response) {
+bool Router::m_dispatchCommands(Request & request, Response & response) {
   bool routeFound = false;
   int prefixLength = strlen(m_urlPrefix);
 
@@ -893,54 +894,54 @@ bool Router::m_dispatchCommands(Request &request, Response &response) {
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type GET matches the url pattern. */
-void Router::get(const char *urlPattern, Middleware *command) {
+void Router::get(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::GET, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type POST matches the url pattern. */
-void Router::post(const char *urlPattern, Middleware *command) {
+void Router::post(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::POST, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type PUT matches the url pattern. */
-void Router::put(const char *urlPattern, Middleware *command) {
+void Router::put(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::PUT, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type DELETE matches the url pattern. */
-void Router::del(const char *urlPattern, Middleware *command) {
+void Router::del(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::DELETE, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type PATCH matches the url pattern. */
-void Router::patch(const char *urlPattern, Middleware *command) {
+void Router::patch(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::PATCH, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request with method type OPTIONS matches the url pattern. */
-void Router::options(const char *urlPattern, Middleware *command) {
+void Router::options(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::OPTIONS, urlPattern, command);
 }
 
 /* Mounts a middleware command to the router which is executed when a HTTP
    request regardless of method type matches the url pattern. */
-void Router::all(const char *urlPattern, Middleware *command) {
+void Router::all(const char *urlPattern, Middleware * command) {
   m_addCommand(Request::ALL, urlPattern, command);
 }
 
 /* Mounts a middleware command to be executed on every request regardless of
    method type and URL although possible router URL prefix has to match */
-void Router::use(Middleware *command) {
+void Router::use(Middleware * command) {
   m_addCommand(Request::USE, NULL, command);
 }
 
 void Router::m_addCommand(Request::MethodType type, const char *urlPattern,
-                          Middleware *command) {
+                          Middleware * command) {
   CommandNode *newCommand = (CommandNode *)malloc(sizeof(CommandNode));
 
   newCommand->urlPattern = urlPattern;
@@ -965,7 +966,7 @@ Router *Router::m_getNext() {
   return m_next;
 }
 
-void Router::m_setNext(Router *next) {
+void Router::m_setNext(Router * next) {
   m_next = next;
 }
 
@@ -1041,14 +1042,14 @@ WebApp::WebApp()
 }
 
 /* Processes an incoming connection with default request buffer length. */
-void WebApp::process(Client *client) {
+void WebApp::process(Client * client) {
   char request[SERVER_DEFAULT_REQUEST_LENGTH];
   process(client, request, SERVER_DEFAULT_REQUEST_LENGTH);
 }
 
 /* Processes an incoming connection with request buffer and length given as
    parameters. */
-void WebApp::process(Client *client, char *buff, int bufflen) {
+void WebApp::process(Client * client, char *buff, int bufflen) {
   m_clientObject = client;
 
   if (m_clientObject == NULL) {
@@ -1115,66 +1116,66 @@ void WebApp::m_process() {
 
 /* Sets the default failure command for the server. Executed whem request is
    considered malformed. */
-void WebApp::failCommand(Router::Middleware *command) {
+void WebApp::failCommand(Router::Middleware * command) {
   m_failureCommand = command;
 }
 
 /* Sets the default not found command for the server. Executed whem no routes
    match the query. */
-void WebApp::notFoundCommand(Router::Middleware *command) {
+void WebApp::notFoundCommand(Router::Middleware * command) {
   m_notFoundCommand = command;
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type GET matches the url pattern. */
-void WebApp::get(const char *urlPattern, Router::Middleware *command) {
+void WebApp::get(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::GET, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type POST matches the url pattern. */
-void WebApp::post(const char *urlPattern, Router::Middleware *command) {
+void WebApp::post(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::POST, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type PUT matches the url pattern. */
-void WebApp::put(const char *urlPattern, Router::Middleware *command) {
+void WebApp::put(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::PUT, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type DELETE matches the url pattern. */
-void WebApp::del(const char *urlPattern, Router::Middleware *command) {
+void WebApp::del(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::DELETE, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type PATCH matches the url pattern. */
-void WebApp::patch(const char *urlPattern, Router::Middleware *command) {
+void WebApp::patch(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::PATCH, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request with method type OPTIONS matches the url pattern. */
-void WebApp::options(const char *urlPattern, Router::Middleware *command) {
+void WebApp::options(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::OPTIONS, urlPattern, command);
 }
 
 /* Mounts a middleware command to the default router which is executed when a
    HTTP request regardless of method type matches the url pattern. */
-void WebApp::all(const char *urlPattern, Router::Middleware *command) {
+void WebApp::all(const char *urlPattern, Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::ALL, urlPattern, command);
 }
 
 /* Mounts a middleware command to be executed on every request regardless of
    method type and url */
-void WebApp::use(Router::Middleware *command) {
+void WebApp::use(Router::Middleware * command) {
   m_defaultRouter.m_addCommand(Request::USE, NULL, command);
 }
 
 /* Mounts a Router instance to the server. */
-void WebApp::use(Router *router) {
+void WebApp::use(Router * router) {
   Router *routerNode = m_routerTail;
 
   while (routerNode->m_getNext() != NULL) {
@@ -1207,11 +1208,11 @@ void WebApp::readHeader(const char *name, char *buffer, int bufflen) {
 }
 
 /* Executed when request is considered malformed. */
-void WebApp::m_defaultFailCommand(Request &request, Response &response) {
+void WebApp::m_defaultFailCommand(Request & request, Response & response) {
   response.sendStatus(400);
 }
 
 /* Executed when no routes match the query. */
-void WebApp::m_defaultNotFoundCommand(Request &request, Response &response) {
+void WebApp::m_defaultNotFoundCommand(Request & request, Response & response) {
   response.sendStatus(404);
 }
