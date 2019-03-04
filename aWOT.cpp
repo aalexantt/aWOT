@@ -136,41 +136,6 @@ void Request::m_processURL() {
   }
 }
 
-void Request::m_decodeURL() {
-  char *leader = m_path;
-  char *follower = leader;
-
-  while (*leader) {
-    if (*leader == '%') {
-      leader++;
-      char high = *leader;
-      leader++;
-      char low = *leader;
-
-      if (high > 0x39) {
-        high -= 7;
-      }
-
-      high &= 0x0f;
-
-      if (low > 0x39) {
-        low -= 7;
-      }
-
-      low &= 0x0f;
-
-      *follower = (high << 4) | low;
-    } else {
-      *follower = *leader;
-    }
-
-    leader++;
-    follower++;
-  }
-
-  *follower = '\0';
-}
-
 /* Processes the header fields of the request */
 bool Request::m_processHeaders(HeaderNode *headerTail) {
   m_headerTail = headerTail;

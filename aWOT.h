@@ -135,7 +135,6 @@ class Request: public Stream {
     bool m_processMethod();
     bool m_readURL();
     void m_processURL();
-    void m_decodeURL();
     bool m_processHeaders(HeaderNode* headerTail);
 
     void m_setRoute(int prefixLength, const char * routeString);
