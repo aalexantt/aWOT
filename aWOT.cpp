@@ -31,13 +31,16 @@ Request::Request()
     m_bytesRead(0),
     m_headerTail(NULL),
     m_query(NULL),
+    m_queryLength(0),
     m_timedOut(false),
     m_path(NULL),
     m_pathLength(0),
     m_route(NULL) {}
 
 bool Request::body(byte *buffer, int bufferLength) {
-  while (contentLeft() && bufferLength-- && !m_timedOut) {
+  memset(buffer, 0, bufferLength);
+
+  while (contentLeft() && --bufferLength && !m_timedOut) {
     *buffer++ = read();
   }
 
@@ -86,8 +89,35 @@ bool Request::m_readURL() {
   int ch;
 
   while ((ch = read()) != -1 && ch != ' ' && ch != '\n' && ch != '\r' && --bufferLeft) {
+    if (ch == '%') {
+      char high = read();
+      if (high == -1) {
+        return false;
+      }
+
+      char low = read();
+      if (high == -1) {
+        return false;
+      }
+
+      if (high > 0x39) {
+        high -= 7;
+      }
+
+      high &= 0x0f;
+
+      if (low > 0x39) {
+        low -= 7;
+      }
+
+      low &= 0x0f;
+
+      ch = (high << 4) | low;
+    }
+
     *request++ = ch;
   }
+
   *request = 0;
 
   return bufferLeft > 0;
@@ -99,6 +129,7 @@ void Request::m_processURL() {
 
   m_pathLength = (qmLocation == NULL) ? strlen(m_path) : (qmLocation - m_path);
   m_query = m_path + m_pathLength + qmOffset;
+  m_queryLength = strlen(m_query);
 
   if (qmOffset) {
     *qmLocation = 0;
@@ -137,7 +168,7 @@ void Request::m_decodeURL() {
     follower++;
   }
 
-  *follower = 0;
+  *follower = '\0';
 }
 
 /* Processes the header fields of the request */
@@ -164,6 +195,7 @@ bool Request::m_processHeaders(HeaderNode *headerTail) {
           if (!m_readHeader(headerNode->buffer, headerNode->size)) {
             return false;
           }
+
           match = true;
           break;
         } else {
@@ -267,23 +299,23 @@ char *Request::query() {
    "word" */
 bool Request::query(const char *key, char *paramBuffer, int paramBufferLen) {
   memset(paramBuffer, 0, paramBufferLen);
-  char * paramStart = m_query;
 
-  while ((paramStart = strstr(paramStart, key)) != NULL) {
-    paramStart += strlen(key);
-    Serial.println(paramStart);
+  char * position = m_query;
+  int keyLenght = strlen(key);
 
-    if (*paramStart == '&') {
-      return true;
-    }
+  while ((position = strstr(position, key))) {
+    char previous = *(position - 1);
 
-    if (*paramStart++ == '=') {
-      while (*paramStart && *paramStart != '&' && --paramBufferLen) {
-        *paramBuffer++ = *paramStart++;
+    if ((previous == '\0' || previous == '&') && *(position + keyLenght) == '=') {
+      position = position + keyLenght + 1;
+      while (*position && *position != '&' && --paramBufferLen) {
+        *paramBuffer++ = *position++;
       }
 
       return paramBufferLen > 0;
     }
+
+    position++;
   }
 
   return false;
@@ -294,60 +326,54 @@ bool Request::query(const char *key, char *paramBuffer, int paramBufferLen) {
 bool Request::formParam(char *name, int nameLen, char *value, int valueLen) {
   int ch;
   bool foundSomething = false;
+  bool readingName = true;
+
   memset(name, 0, nameLen);
   memset(value, 0, valueLen);
-  --nameLen;
-  --valueLen;
 
   while ((ch = read()) != -1) {
-    if (m_timedOut) {
-      return false;
-    }
-
     foundSomething = true;
-
     if (ch == '+') {
       ch = ' ';
     } else if (ch == '=') {
-      nameLen = 0;
+      readingName = false;
       continue;
     } else if (ch == '&') {
-      return true;
+      return nameLen > 0 && valueLen > 0;
     } else if (ch == '%') {
-      char ch1 = read();
-      if (m_timedOut) {
+      char high = read();
+      if (high == -1) {
         return false;
       }
 
-      char ch2 = read();
-      if (m_timedOut) {
+      char low = read();
+      if (high == -1) {
         return false;
       }
 
-      if (ch1 == -1 || ch2 == -1) {
-        return false;
+      if (high > 0x39) {
+        high -= 7;
       }
 
-      char hex[3] = {ch1, ch2, 0};
-      ch = m_hexToInt(hex);
+      high &= 0x0f;
+
+      if (low > 0x39) {
+        low -= 7;
+      }
+
+      low &= 0x0f;
+
+      ch = (high << 4) | low;
     }
 
-    if (nameLen > 0) {
+    if (readingName && --nameLen) {
       *name++ = ch;
-      --nameLen;
-    }
-
-    else if (valueLen > 0) {
+    } else if (!readingName && --valueLen) {
       *value++ = ch;
-      --valueLen;
     }
   }
 
-  if (foundSomething) {
-    return true;
-  } else {
-    return false;
-  }
+  return foundSomething && nameLen > 0 && valueLen > 0;
 }
 
 /* Returns a pointer to a header value */
@@ -541,31 +567,6 @@ bool Request::m_readInt(int &number) {
   }
 
   return gotNumber;
-}
-
-int Request::m_hexToInt(char *hex) {
-  int converted = 0;
-
-  while (true) {
-    char c = *hex;
-
-    if (c >= '0' && c <= '9') {
-      converted *= 16;
-      converted += c - '0';
-    } else if (c >= 'a' && c <= 'f') {
-      converted *= 16;
-      converted += (c - 'a') + 10;
-    } else if (c >= 'A' && c <= 'F') {
-      converted *= 16;
-      converted += (c - 'A') + 10;
-    } else {
-      break;
-    }
-
-    hex++;
-  }
-
-  return converted;
 }
 
 /* Request class constructor. */
@@ -1084,7 +1085,6 @@ void WebApp::m_process() {
     return m_response.sendStatus(408);
   }
 
-  m_request.m_decodeURL();
   m_request.m_processURL();
 
   if (!m_request.m_processHeaders(m_headerTail)) {

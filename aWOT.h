@@ -158,13 +158,12 @@ class Request: public Stream {
     HeaderNode* m_headerTail;
 
     char * m_query;
+    int m_queryLength;
     bool m_timedOut;
 
     char * m_path;
     int m_pathLength;
     int m_prefixLength;
-
-    int m_hexToInt(char *hex);
 
     const char * m_route;
 
