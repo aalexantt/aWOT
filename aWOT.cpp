@@ -37,6 +37,11 @@ Request::Request()
     m_pathLength(0),
     m_route(NULL) {}
 
+Client *Request::client() {
+  return m_clientObject;
+}
+
+
 bool Request::body(byte *buffer, int bufferLength) {
   memset(buffer, 0, bufferLength);
 
@@ -561,6 +566,10 @@ void Response::m_init(Client * client) {
 }
 
 void Response::writeP(const unsigned char *data, size_t length) {
+  if(m_ended){
+    return;
+  }
+
   if (m_shouldPrintHeaders()) {
     m_printHeaders();
   }
@@ -571,6 +580,10 @@ void Response::writeP(const unsigned char *data, size_t length) {
 }
 
 void Response::printP(const unsigned char *str) {
+  if(m_ended){
+    return;
+  }
+
   if (m_shouldPrintHeaders()) {
     m_printHeaders();
   }
@@ -581,6 +594,10 @@ void Response::printP(const unsigned char *str) {
 }
 
 size_t Response::write(uint8_t ch) {
+  if(m_ended){
+    return 0;
+  }
+
   if (m_shouldPrintHeaders()) {
     m_printHeaders();
   }
@@ -598,6 +615,10 @@ size_t Response::write(uint8_t ch) {
 }
 
 size_t Response::write(uint8_t *buffer, size_t size) {
+  if(m_ended){
+    return 0;
+  }
+
   if (m_shouldPrintHeaders()) {
     m_printHeaders();
   }

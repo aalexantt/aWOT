@@ -35,11 +35,16 @@ void noContent(Request &req, Response &res) {
 }
 
 void queryParams(Request &req, Response &res) {
-  char test1[64];
-  char test2[64];
+  char test1[10];
+  char test2[10];
 
-  req.query("test1", test1, 64);
-  req.query("test2", test2, 64);
+  if(!req.query("test1", test1, 10)){
+    return res.sendStatus(400);
+  }
+
+  if(!req.query("test2", test2, 10)){
+     return res.sendStatus(400);
+  }
 
   res.set("Content-Type", "text/plain");
   res.print(test1);
@@ -48,10 +53,15 @@ void queryParams(Request &req, Response &res) {
 }
 
 void routeNameParams(Request &req, Response &res) {
-  char test1[64];
-  char test2[64];
-  req.route("test1", test1, 64);
-  req.route("test2", test2, 64);
+  char test1[10];
+  char test2[10];
+  if(!req.route("test1", test1, 10)){
+        return res.sendStatus(400); 
+  }
+
+  if(!req.route("test2", test2, 10)) {
+     return res.sendStatus(400); 
+  }
 
   res.set("Content-Type", "text/plain");
   res.print(test1);
@@ -60,10 +70,15 @@ void routeNameParams(Request &req, Response &res) {
 }
 
 void routeNumberParams(Request &req, Response &res) {
-  char test1[64];
-  char test2[64];
-  req.route(2, test1, 64);
-  req.route(4, test2, 64);
+  char test1[10];
+  char test2[10];
+  if(!req.route(2, test1, 10)) {
+     return res.sendStatus(400); 
+  }
+
+  if(!req.route(4, test2, 10)){
+     return res.sendStatus(400);
+  }
 
   res.set("Content-Type", "text/plain");
   res.print(test1);
@@ -74,11 +89,14 @@ void routeNumberParams(Request &req, Response &res) {
 
 void formParams(Request &req, Response &res) {
   char name[10];
-  char value[64];
+  char value[10];
 
   res.set("Content-Type", "text/plain");
   while (req.contentLeft()) {
-    req.formParam(name, 10, value, 64);
+    if(!req.formParam(name, 10, value, 10)){
+       return res.sendStatus(400);
+    }
+
     res.print(name);
     res.print(":");
     res.print(value);
@@ -127,11 +145,13 @@ void serverError(Request &req, Response &res) {
   res.sendStatus(500);
 }
 
-byte readWriteBuffer[10000];
+byte readWriteBuffer[1001];
 void readWrite(Request &req, Response &res) {
-  req.body(readWriteBuffer, 10000);
+  if(!req.body(readWriteBuffer, 1001)){
+    return res.sendStatus(400);
+  }
   res.set("Content-Type", "application/binary");
-  res.write(readWriteBuffer, 10000);
+  res.write(readWriteBuffer, 1000);
 }
 
 void setup() {

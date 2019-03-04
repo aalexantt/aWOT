@@ -96,7 +96,7 @@ class Request: public Stream {
     };
 
     Request();
-
+    Client * client();
     MethodType method();
     int contentLeft();
 
