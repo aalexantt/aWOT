@@ -633,14 +633,16 @@ void Response::set(const char *name, const char *value) {
   }
 
 
-  if (m_headersCount < SIZE(m_headers)) {
-    m_headers[m_headersCount].name = name;
-    m_headers[m_headersCount].value = value;
-    m_headersCount++;
+  if (m_headersCount >= SIZE(m_headers)) {
+    return;
+  }
 
-    if (WebApp::strcmpi(name, "Content-Type") == 0) {
-      m_contentTypeSet = true;
-    }
+  m_headers[m_headersCount].name = name;
+  m_headers[m_headersCount].value = value;
+  m_headersCount++;
+
+  if (WebApp::strcmpi(name, "Content-Type") == 0) {
+    m_contentTypeSet = true;
   }
 }
 
