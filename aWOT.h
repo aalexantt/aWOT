@@ -191,6 +191,7 @@ class Response: public Stream {
     void sendStatus(int code);
     void end();
     bool ended();
+    bool headersSent();
 
     void set(const char* name, const char* value);
 
@@ -211,7 +212,7 @@ class Response: public Stream {
     void m_reset();
     void m_printCRLF();
     void m_printHeaders();
-    bool m_headersSent();
+
     bool m_shouldPrintHeaders();
     void m_flushBuf();
     void m_printStatus(int code);
@@ -226,7 +227,7 @@ class Response: public Stream {
 
     bool m_contentTypeSet;
     bool m_statusSent;
-    bool m_isHeadersSent;
+    bool m_headersSent;
     bool m_sendingStatus;
     bool m_sendingHeaders;
     unsigned int m_headersCount;

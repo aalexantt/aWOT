@@ -157,7 +157,7 @@ bool Request::m_processHeaders(HeaderNode *headerTail) {
     while (headerNode != NULL) {
       if (m_expect(headerNode->name)) {
         char c = read();
-        if (m_timedOut) {
+        if (c  == -1) {
           return false;
         }
 
@@ -381,10 +381,8 @@ int Request::read() {
   unsigned long timeoutTime = millis() + SERVER_READ_TIMEOUT_IN_MS;
 
   while (m_clientObject->connected()) {
-    if (m_readingContent) {
-      if (m_contentLeft == 0) {
-        return -1;
-      }
+    if (m_readingContent && m_contentLeft == 0) {
+       return -1;
     }
 
     int ch = m_clientObject->read();
@@ -397,9 +395,7 @@ int Request::read() {
       }
 
       return ch;
-    }
-
-    else {
+    } else {
       unsigned long now = millis();
 
       if (now > timeoutTime) {
@@ -438,13 +434,9 @@ void Request::push(uint8_t ch) {
 
 bool Request::m_expect(const char *str) {
   const char *curr = str;
+  int ch;
 
-  while (*curr != 0) {
-    int ch = read();
-    if (m_timedOut) {
-      return false;
-    }
-
+  while (*curr != 0 && (ch = read()) != -1) {
     if (tolower(ch) != tolower(*curr++)) {
       push(ch);
 
@@ -544,7 +536,7 @@ Response::Response()
   : m_clientObject(NULL),
     m_contentTypeSet(false),
     m_statusSent(false),
-    m_isHeadersSent(false),
+    m_headersSent(false),
     m_sendingStatus(false),
     m_sendingHeaders(false),
     m_headersCount(0),
@@ -557,7 +549,7 @@ void Response::m_init(Client * client) {
   m_clientObject = client;
   m_contentTypeSet = false;
   m_statusSent = false;
-  m_isHeadersSent = false;
+  m_headersSent = false;
   m_sendingStatus = false;
   m_sendingHeaders = false;
   m_bytesSent = 0;
@@ -649,6 +641,14 @@ bool Response::ended() {
 
 /* Sets a header name and value pair to the response. */
 void Response::set(const char *name, const char *value) {
+  for (byte i = 0; i < m_headersCount; i++) {
+    if(WebApp::strcmpi(name, m_headers[i].name) == 0){
+     m_headers[m_headersCount].value = value;
+     return; 
+    }
+  }
+
+  
   if (m_headersCount < SIZE(m_headers)) {
     m_headers[m_headersCount].name = name;
     m_headers[m_headersCount].value = value;
@@ -827,15 +827,15 @@ void Response::m_printHeaders() {
 
   m_printCRLF();
   m_sendingHeaders = false;
-  m_isHeadersSent = true;
+  m_headersSent = true;
 }
 
-bool Response::m_headersSent() {
-  return m_isHeadersSent;
+bool Response::headersSent() {
+  return m_headersSent;
 }
 
 bool Response::m_shouldPrintHeaders() {
-  return (!m_isHeadersSent && !m_sendingHeaders && !m_sendingStatus);
+  return (!m_headersSent && !m_sendingHeaders && !m_sendingStatus);
 }
 
 void Response::m_flushBuf() {
@@ -1095,7 +1095,7 @@ void WebApp::m_process() {
     return m_notFoundCommand(m_request, m_response);
   }
 
-  if (!m_response.ended() && !m_response.m_headersSent()) {
+  if (!m_response.ended() && !m_response.headersSent()) {
     m_response.m_printHeaders();
   }
 }
