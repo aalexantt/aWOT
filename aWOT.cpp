@@ -382,7 +382,7 @@ int Request::read() {
 
   while (m_clientObject->connected()) {
     if (m_readingContent && m_contentLeft == 0) {
-       return -1;
+      return -1;
     }
 
     int ch = m_clientObject->read();
@@ -463,29 +463,16 @@ bool Request::m_readHeader(char *value, int valueLen) {
   int ch;
   memset(value, 0, valueLen);
 
-  do {
-    ch = read();
-    if (m_timedOut) {
-      return false;
-    }
-  } while (ch == ' ' || ch == '\t');
-
-  do {
-    if (valueLen > 0) {
-      *value++ = ch;
-      --valueLen;
-    }
-
-    ch = read();
-    if (m_timedOut) {
-      return false;
-    }
-
-  } while (ch != '\r');
-
+  while ((ch = read()) != -1 && (ch == ' ' || ch == '\t'));
   push(ch);
 
-  return valueLen;
+  while ((ch = read()) != -1 && ch != '\r') {
+    if (--valueLen > 0) {
+      *value++ = ch;
+    }
+  }
+
+  return valueLen > 0;
 }
 
 bool Request::m_readInt(int &number) {
@@ -495,15 +482,8 @@ bool Request::m_readInt(int &number) {
 
   number = 0;
 
-  // absorb whitespace
-  do {
-    ch = read();
-    if (m_timedOut) {
-      return false;
-    }
-  } while (ch == ' ' || ch == '\t');
+  while ((ch = read()) != -1 && (ch == ' ' || ch == '\t'));
 
-  // check for leading minus sign
   if (ch == '-') {
     negate = true;
     ch = read();
@@ -512,7 +492,6 @@ bool Request::m_readInt(int &number) {
     }
   }
 
-  // read digits to update number, exit when we find non-digit
   while (ch >= '0' && ch <= '9') {
     gotNumber = true;
     number = number * 10 + ch - '0';
@@ -558,7 +537,7 @@ void Response::m_init(Client * client) {
 }
 
 void Response::writeP(const unsigned char *data, size_t length) {
-  if(m_ended){
+  if (m_ended) {
     return;
   }
 
@@ -572,7 +551,7 @@ void Response::writeP(const unsigned char *data, size_t length) {
 }
 
 void Response::printP(const unsigned char *str) {
-  if(m_ended){
+  if (m_ended) {
     return;
   }
 
@@ -586,7 +565,7 @@ void Response::printP(const unsigned char *str) {
 }
 
 size_t Response::write(uint8_t ch) {
-  if(m_ended){
+  if (m_ended) {
     return 0;
   }
 
@@ -607,7 +586,7 @@ size_t Response::write(uint8_t ch) {
 }
 
 size_t Response::write(uint8_t *buffer, size_t size) {
-  if(m_ended){
+  if (m_ended) {
     return 0;
   }
 
@@ -642,21 +621,23 @@ bool Response::ended() {
 /* Sets a header name and value pair to the response. */
 void Response::set(const char *name, const char *value) {
   for (byte i = 0; i < m_headersCount; i++) {
-    if(WebApp::strcmpi(name, m_headers[i].name) == 0){
-     m_headers[m_headersCount].value = value;
-     return; 
+    if (WebApp::strcmpi(name, m_headers[i].name) == 0) {
+      m_headers[m_headersCount].value = value;
+      return;
     }
   }
 
-  
-  if (m_headersCount < SIZE(m_headers)) {
-    m_headers[m_headersCount].name = name;
-    m_headers[m_headersCount].value = value;
-    m_headersCount++;
 
-    if (WebApp::strcmpi(name, "Content-Type") == 0) {
-      m_contentTypeSet = true;
-    }
+  if (m_headersCount >= SIZE(m_headers)) {
+    return;
+  }
+  
+  m_headers[m_headersCount].name = name;
+  m_headers[m_headersCount].value = value;
+  m_headersCount++;
+
+  if (WebApp::strcmpi(name, "Content-Type") == 0) {
+    m_contentTypeSet = true;
   }
 }
 
