@@ -225,11 +225,14 @@ bool Request::route(const char *name, char *paramBuffer, int paramBufferLen) {
     if (m_route[i++] == ':') {
       int j = 0;
 
-      while ((m_route[i] && name[j]) && m_route[i++] == name[j++])
+      while ((m_route[i] && name[j]) && m_route[i] == name[j]) {
+        i++;
+        j++;
+      }
 
-        if (!name[j] && (m_route[i] == '/' || !m_route[i])) {
-          return route(part, paramBuffer, paramBufferLen);
-        }
+      if (!name[j] && (m_route[i] == '/' || !m_route[i])) {
+        return route(part, paramBuffer, paramBufferLen);
+      }
     }
   }
 
@@ -484,6 +487,7 @@ bool Request::m_readInt(int &number) {
 
   while ((ch = read()) != -1 && (ch == ' ' || ch == '\t'));
 
+  // check for leading minus sign
   if (ch == '-') {
     negate = true;
     ch = read();
@@ -492,6 +496,7 @@ bool Request::m_readInt(int &number) {
     }
   }
 
+  // read digits to update number, exit when we find non-digit
   while (ch >= '0' && ch <= '9') {
     gotNumber = true;
     number = number * 10 + ch - '0';
@@ -628,16 +633,14 @@ void Response::set(const char *name, const char *value) {
   }
 
 
-  if (m_headersCount >= SIZE(m_headers)) {
-    return;
-  }
-  
-  m_headers[m_headersCount].name = name;
-  m_headers[m_headersCount].value = value;
-  m_headersCount++;
+  if (m_headersCount < SIZE(m_headers)) {
+    m_headers[m_headersCount].name = name;
+    m_headers[m_headersCount].value = value;
+    m_headersCount++;
 
-  if (WebApp::strcmpi(name, "Content-Type") == 0) {
-    m_contentTypeSet = true;
+    if (WebApp::strcmpi(name, "Content-Type") == 0) {
+      m_contentTypeSet = true;
+    }
   }
 }
 
@@ -939,6 +942,10 @@ void Router::m_setNext(Router * next) {
 }
 
 bool Router::m_routeMatch(const char *text, const char *pattern) {
+  if (pattern[0] == '\0' && text[0] == '\0') {
+    return true;
+  }
+
   boolean match = false;
   int i = 0;
   int j = 0;
