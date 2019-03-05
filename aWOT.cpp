@@ -939,10 +939,6 @@ void Router::m_setNext(Router * next) {
 }
 
 bool Router::m_routeMatch(const char *text, const char *pattern) {
-  if (pattern[0] == '\0' && text[0] == '\0') {
-    return true;
-  }
-
   boolean match = false;
   int i = 0;
   int j = 0;
@@ -968,7 +964,7 @@ bool Router::m_routeMatch(const char *text, const char *pattern) {
     }
   }
 
-  if (match && !pattern[i] && text[j] == '/' && !text[j + 1]) {
+  if (match && !pattern[i] && text[j] == '/' && !text[j]) {
     match = true;
   } else if (pattern[i] || text[j]) {
     match = false;
